@@ -10,11 +10,10 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Options:
     """处理选项，集中管理便于扩展。"""
 
@@ -25,19 +24,19 @@ class Options:
 
 def split_lines(text: str, trim_each: bool = False) -> list[str]:
     """按行拆分，过滤空白行。trim_each 为 True 时对每行去首尾空格。"""
-    lines = text.split("\n")
-    result = []
+    lines = text.splitlines()
+    result: list[str] = []
     for line in lines:
-        line = line.rstrip("\r")
         if trim_each:
             line = line.strip()
-        if line.strip() != "":
+        if line.strip():
             result.append(line)
     return result
 
 
 def _key(value: str, ignore_case: bool) -> str:
-    return value.lower() if ignore_case else value
+    # casefold 比 lower 更适合做不区分大小写的 Unicode 文本比较。
+    return value.casefold() if ignore_case else value
 
 
 def distinct(lines: list[str], ignore_case: bool = False) -> list[str]:
@@ -112,19 +111,26 @@ def add_comma(lines: list[str], with_quote: bool = False) -> list[str]:
 
 def remove_comma(lines: list[str]) -> list[str]:
     """去掉每行末尾的逗号。"""
-    return [re.sub(r",$", "", item) for item in lines]
+    return [item.removesuffix(",") for item in lines]
 
 
 def remove_comma_quote(lines: list[str], quote: str) -> list[str]:
     """去掉行首引号、行尾引号和逗号。quote 为 ' 或 " 。"""
-    q = re.escape(quote)
-    out = []
+    if quote not in {"'", '"'}:
+        raise ValueError("quote 只能是单引号或双引号")
+
+    out: list[str] = []
     for item in lines:
-        item = re.sub(rf"^{q}", "", item)
-        item = re.sub(rf"{q},?$", "", item)
-        item = re.sub(r",$", "", item)
+        item = item.removesuffix(",")
+        if len(item) >= 2 and item.startswith(quote) and item.endswith(quote):
+            item = item[1:-1]
         out.append(item)
     return out
+
+
+def _reject_non_standard_json(value: str) -> None:
+    """拒绝 Python json 默认接受、但 JSON 标准不允许的特殊数值。"""
+    raise ValueError(f"不支持非标准 JSON 数值: {value}")
 
 
 def to_json_pretty(text: str, indent: int = 2) -> tuple[bool, str]:
@@ -133,9 +139,9 @@ def to_json_pretty(text: str, indent: int = 2) -> tuple[bool, str]:
     if not text:
         return False, "输入为空"
     try:
-        obj = json.loads(text)
-        return True, json.dumps(obj, indent=indent, ensure_ascii=False)
-    except json.JSONDecodeError as e:
+        obj = json.loads(text, parse_constant=_reject_non_standard_json)
+        return True, json.dumps(obj, indent=indent, ensure_ascii=False, allow_nan=False)
+    except (json.JSONDecodeError, ValueError) as e:
         return False, f"JSON 解析错误: {e}"
 
 

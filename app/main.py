@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
+import logging
 import sys
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QRegularExpression, QSettings
+from PySide6.QtCore import QRegularExpression, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QCloseEvent,
     QFont,
     QGuiApplication,
     QKeySequence,
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -38,20 +42,36 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import (
-    Options,
-    add_comma,
-    difference,
-    distinct,
-    duplicates,
-    intersection,
-    join_result,
-    remove_comma,
-    remove_comma_quote,
-    split_lines,
-    to_json_pretty,
-    union,
-)
+try:
+    from app.core import (
+        Options,
+        add_comma,
+        difference,
+        distinct,
+        duplicates,
+        intersection,
+        join_result,
+        remove_comma,
+        remove_comma_quote,
+        split_lines,
+        to_json_pretty,
+        union,
+    )
+except ImportError:  # 兼容从 app 目录直接运行 main.py
+    from core import (
+        Options,
+        add_comma,
+        difference,
+        distinct,
+        duplicates,
+        intersection,
+        join_result,
+        remove_comma,
+        remove_comma_quote,
+        split_lines,
+        to_json_pretty,
+        union,
+    )
 
 
 THEMES: dict[str, dict[str, str]] = {
@@ -113,6 +133,36 @@ THEMES: dict[str, dict[str, str]] = {
         "json_literal": "#dcdcaa",
     },
 }
+
+
+def install_exception_handler() -> None:
+    """记录未处理异常，并在 windowed 打包模式下给用户可见提示。"""
+    log_path: Path | None = None
+    try:
+        log_dir = Path(QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "data-compare-tool.log"
+        logging.basicConfig(
+            filename=log_path,
+            level=logging.ERROR,
+            encoding="utf-8",
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+    except OSError:
+        logging.basicConfig(level=logging.ERROR)
+
+    def handle_exception(exc_type, exc_value, exc_traceback) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logging.critical(
+            "未处理异常",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+        detail = f"\n错误日志：{log_path}" if log_path is not None else ""
+        QMessageBox.critical(None, "程序发生错误", f"操作未能完成，请重试。{detail}")
+
+    sys.excepthook = handle_exception
 
 
 def build_stylesheet(theme: dict[str, str]) -> str:
@@ -202,9 +252,10 @@ class JsonHighlighter(QSyntaxHighlighter):
                 f.setFontWeight(QFont.Bold)
             return f
 
+        # 通用字符串先处理，键名规则后处理，确保键名颜色不会被覆盖。
         self.rules = [
-            (QRegularExpression(r'"(\\.|[^"\\])*"(?=\s*:)'), fmt(theme["json_key"], True)),
             (QRegularExpression(r'"(\\.|[^"\\])*"'), fmt(theme["json_string"])),
+            (QRegularExpression(r'"(\\.|[^"\\])*"(?=\s*:)'), fmt(theme["json_key"], True)),
             (QRegularExpression(r"-?\b\d+(\.\d+)?([eE][+-]?\d+)?\b"), fmt(theme["json_number"])),
             (QRegularExpression(r"\b(true|false|null)\b"), fmt(theme["json_literal"], True)),
         ]
@@ -243,7 +294,11 @@ class TextPanel(QWidget):
         font = QFont("Consolas", 10)
         font.setStyleHint(QFont.Monospace)
         self.edit.setFont(font)
-        self.edit.textChanged.connect(self._update_count)
+        self._count_timer = QTimer(self)
+        self._count_timer.setSingleShot(True)
+        self._count_timer.setInterval(150)
+        self._count_timer.timeout.connect(self._update_count)
+        self.edit.textChanged.connect(self._count_timer.start)
         layout.addWidget(self.edit)
 
     def apply_theme(self, theme: dict[str, str]) -> None:
@@ -269,6 +324,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("数据对比工具")
         self.resize(1100, 720)
+        self.setMinimumSize(760, 520)
         self.settings = QSettings("DataCompareTool", "DataCompareTool")
         self.current_theme_key = "white"
         self.section_labels: list[QLabel] = []
@@ -301,10 +357,10 @@ class MainWindow(QMainWindow):
         self.panel_b = TextPanel("B 集合")
         self.panel_r = TextPanel("R 结果", read_only=False)
 
-        top_split = QSplitter(Qt.Horizontal)
-        top_split.addWidget(self.panel_a)
-        top_split.addWidget(self.panel_b)
-        top_split.setSizes([550, 550])
+        self.top_split = QSplitter(Qt.Horizontal)
+        self.top_split.addWidget(self.panel_a)
+        self.top_split.addWidget(self.panel_b)
+        self.top_split.setSizes([550, 550])
 
         # 结果区用 Tab：纯文本 + JSON 视图
         self.tabs = QTabWidget()
@@ -317,20 +373,52 @@ class MainWindow(QMainWindow):
         self.json_highlighter = JsonHighlighter(self.json_view.document())
         self.tabs.addTab(self.json_view, "JSON 视图")
 
-        main_split = QSplitter(Qt.Vertical)
-        main_split.addWidget(top_split)
-        main_split.addWidget(self.tabs)
-        main_split.setSizes([400, 320])
-        root.addWidget(main_split, 1)
+        self.main_split = QSplitter(Qt.Vertical)
+        self.main_split.addWidget(self.top_split)
+        self.main_split.addWidget(self.tabs)
+        self.main_split.setSizes([400, 320])
+        root.addWidget(self.main_split, 1)
 
         self.status = self.statusBar()
-        self.status.showMessage("就绪 — Left={A}, Right={B}, Bottom={R}")
 
         self._setup_shortcuts()
         saved_theme = self.settings.value("theme", "white", str)
         if saved_theme not in THEMES:
             saved_theme = "white"
         self._apply_theme(saved_theme)
+        self._restore_settings()
+        self.status.showMessage("就绪 — 左侧 A，右侧 B，下方为结果")
+
+    def _restore_settings(self) -> None:
+        """恢复不包含业务数据的界面状态和用户选项。"""
+        self.cb_remove_newline.setChecked(
+            self.settings.value("options/remove_newline", False, type=bool)
+        )
+        self.cb_ignore_case.setChecked(
+            self.settings.value("options/ignore_case", False, type=bool)
+        )
+        self.cb_trim.setChecked(self.settings.value("options/trim_each", False, type=bool))
+
+        geometry = self.settings.value("window/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        top_state = self.settings.value("splitter/top")
+        if top_state is not None:
+            self.top_split.restoreState(top_state)
+        main_state = self.settings.value("splitter/main")
+        if main_state is not None:
+            self.main_split.restoreState(main_state)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """退出时保存界面布局和选项，不保存用户输入内容。"""
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("splitter/top", self.top_split.saveState())
+        self.settings.setValue("splitter/main", self.main_split.saveState())
+        self.settings.setValue("options/remove_newline", self.cb_remove_newline.isChecked())
+        self.settings.setValue("options/ignore_case", self.cb_ignore_case.isChecked())
+        self.settings.setValue("options/trim_each", self.cb_trim.isChecked())
+        self.settings.sync()
+        super().closeEvent(event)
 
     def _build_theme_selector(self) -> QWidget:
         box = QWidget()
@@ -411,13 +499,16 @@ class MainWindow(QMainWindow):
         lbl2 = QLabel("格式化 / 工具")
         self.section_labels.append(lbl2)
         grid.addWidget(lbl2, 2, 0)
-        for i, (text, cb, tip) in enumerate(fmt_ops):
+        tool_ops = fmt_ops + [
+            ("复制结果", self.op_copy_result, "复制 R 结果到剪贴板"),
+        ]
+        columns = 5
+        for i, (text, cb, tip) in enumerate(tool_ops):
             btn = self._make_btn(text, cb, tip)
-            grid.addWidget(btn, 3, i)
+            grid.addWidget(btn, 3 + i // columns, i % columns)
 
-        # 复制结果按钮
-        copy_btn = self._make_btn("复制结果", self.op_copy_result, "复制 R 结果到剪贴板")
-        grid.addWidget(copy_btn, 3, len(fmt_ops))
+        for column in range(columns):
+            grid.setColumnStretch(column, 1)
 
         return frame
 
@@ -468,7 +559,7 @@ class MainWindow(QMainWindow):
         a_n = len(self._lines_a())
         b_n = len(self._lines_b())
         self.status.showMessage(
-            f"{{A}}:{a_n}  {{B}}:{b_n}  {{R}}:{len(lines)}   ({op_name})"
+            f"A: {a_n}  B: {b_n}  R: {len(lines)}   ({op_name})"
         )
 
     # ---------- 操作 ----------
@@ -497,11 +588,11 @@ class MainWindow(QMainWindow):
         )
 
     def op_add_comma(self) -> None:
-        self._show_result(add_comma(distinct(self._lines_a(), self.cb_ignore_case.isChecked())), "加逗号")
+        self._show_result(add_comma(self._lines_a()), "加逗号")
 
     def op_add_quote(self) -> None:
         self._show_result(
-            add_comma(distinct(self._lines_a(), self.cb_ignore_case.isChecked()), with_quote=True),
+            add_comma(self._lines_a(), with_quote=True),
             "加引号逗号",
         )
 
@@ -519,6 +610,24 @@ class MainWindow(QMainWindow):
         self.status.showMessage("已互换 A、B")
 
     def op_clear(self) -> None:
+        has_content = any(
+            (self.panel_a.text(), self.panel_b.text(), self.panel_r.text(), self.json_view.toPlainText())
+        )
+        if not has_content:
+            self.status.showMessage("当前没有需要清空的内容")
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "确认清空",
+            "确定清空 A、B、R 和 JSON 中的全部内容吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            self.status.showMessage("已取消清空")
+            return
+
         self.panel_a.set_text("")
         self.panel_b.set_text("")
         self.panel_r.set_text("")
@@ -533,6 +642,9 @@ class MainWindow(QMainWindow):
 
     def op_copy_result(self) -> None:
         text = self.panel_r.text()
+        if not text:
+            self.status.showMessage("R 结果为空，没有可复制的内容")
+            return
         QGuiApplication.clipboard().setText(text)
         self.status.showMessage(f"已复制 R 结果（{len(text)} 字符）到剪贴板")
 
@@ -540,6 +652,7 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("数据对比工具")
+    install_exception_handler()
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

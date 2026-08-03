@@ -1,18 +1,33 @@
 """核心逻辑测试：运行 `python test_core.py` 验证功能正确。"""
 
-from core import (
-    add_comma,
-    difference,
-    distinct,
-    duplicates,
-    intersection,
-    join_result,
-    remove_comma,
-    remove_comma_quote,
-    split_lines,
-    to_json_pretty,
-    union,
-)
+try:
+    from .core import (
+        add_comma,
+        difference,
+        distinct,
+        duplicates,
+        intersection,
+        join_result,
+        remove_comma,
+        remove_comma_quote,
+        split_lines,
+        to_json_pretty,
+        union,
+    )
+except ImportError:
+    from core import (
+        add_comma,
+        difference,
+        distinct,
+        duplicates,
+        intersection,
+        join_result,
+        remove_comma,
+        remove_comma_quote,
+        split_lines,
+        to_json_pretty,
+        union,
+    )
 
 
 def check(name, got, expected):
@@ -24,6 +39,19 @@ def check(name, got, expected):
     return got == expected
 
 
+def check_raises(name, callback, exception_type):
+    try:
+        callback()
+    except exception_type:
+        print(f"[OK ] {name}")
+        return True
+    except Exception as exc:
+        print(f"[FAIL] {name}\n   期望异常: {exception_type.__name__}\n   实际异常: {type(exc).__name__}")
+        return False
+    print(f"[FAIL] {name}\n   期望异常: {exception_type.__name__}\n   实际: 未抛出异常")
+    return False
+
+
 def run():
     ok = True
     a = ["1", "2", "2", "3", "3", "3"]
@@ -31,17 +59,30 @@ def run():
 
     ok &= check("split_lines 过滤空行", split_lines("a\n\n b \nc\n"), ["a", " b ", "c"])
     ok &= check("split_lines trim", split_lines("a\n b \nc", trim_each=True), ["a", "b", "c"])
+    ok &= check("split_lines 多种换行符", split_lines("a\r\nb\rc"), ["a", "b", "c"])
     ok &= check("distinct", distinct(a), ["1", "2", "3"])
     ok &= check("duplicates", duplicates(a), ["2", "3"])
     ok &= check("difference A-B", difference(a, b), ["1", "2"])
     ok &= check("intersection", intersection(a, b), ["3"])
     ok &= check("union", union(a, b), ["1", "2", "3", "4", "5"])
     ok &= check("ignore_case distinct", distinct(["A", "a", "B"], ignore_case=True), ["A", "B"])
+    ok &= check(
+        "ignore_case Unicode casefold",
+        distinct(["Straße", "STRASSE"], ignore_case=True),
+        ["Straße"],
+    )
     ok &= check("add_comma", add_comma(["a", "b", "c"]), ["a,", "b,", "c"])
     ok &= check("add_comma quote", add_comma(["a", "b"], with_quote=True), ["'a',", "'b'"])
+    ok &= check("add_comma 保留重复项", add_comma(["a", "a"]), ["a,", "a"])
     ok &= check("remove_comma", remove_comma(["a,", "b,", "c"]), ["a", "b", "c"])
     ok &= check("remove_comma_quote single", remove_comma_quote(["'a',", "'b'"], "'"), ["a", "b"])
     ok &= check("remove_comma_quote double", remove_comma_quote(['"a",', '"b"'], '"'), ["a", "b"])
+    ok &= check("remove_comma_quote 不破坏不成对引号", remove_comma_quote(["'a,"], "'"), ["'a"])
+    ok &= check_raises(
+        "remove_comma_quote 拒绝无效引号",
+        lambda: remove_comma_quote(["a"], "`"),
+        ValueError,
+    )
     ok &= check("join_result", join_result(["a", "b"]), "a\nb")
     ok &= check("join_result remove_newline", join_result(["a", "b"], remove_newline=True), "ab")
 
@@ -49,6 +90,9 @@ def run():
     ok &= check("to_json_pretty ok", good, True)
     bad, _ = to_json_pretty("{not json}")
     ok &= check("to_json_pretty 错误", bad, False)
+    for value in ("NaN", "Infinity", "-Infinity"):
+        valid, _ = to_json_pretty(value)
+        ok &= check(f"to_json_pretty 拒绝 {value}", valid, False)
 
     print("\n全部通过" if ok else "\n存在失败")
     return ok
