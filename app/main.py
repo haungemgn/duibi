@@ -348,6 +348,10 @@ class MainWindow(QMainWindow):
         header.addStretch()
         self.copy_button = self._button("复制结果", self.op_copy_result, "复制当前结果（Ctrl+Shift+C）", "copyAction")
         header.addWidget(self.copy_button)
+        header.addWidget(self._button(
+            "复制为一行", lambda: self.op_copy_result(single_line=True),
+            "将当前结果合并成一行复制到剪贴板", "secondaryAction",
+        ))
         body.addLayout(header)
         body.addWidget(divider("cardRule"))
 
@@ -640,16 +644,28 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(1)
         self.status.showMessage("JSON 整形成功" if ok else result)
 
-    def op_copy_result(self) -> None:
-        if self.tabs.currentIndex() == 1:
+    def op_copy_result(self, *, single_line: bool = False) -> None:
+        is_json = self.tabs.currentIndex() == 1
+        if is_json:
             text = self.json_view.document().toRawText().replace("\u2029", "\n")
         else:
             text = self.panel_r.text()
+        if single_line and text:
+            if is_json:
+                ok, text = to_json_pretty(text, indent=None)
+                if not ok:
+                    self.status.showMessage("当前没有可复制的有效 JSON 结果")
+                    return
+                # JSON 字符串内的换行分隔符用等价转义表示，粘贴后仍是一行。
+                text = text.replace("\x85", r"\u0085").replace("\u2028", r"\u2028")
+            else:
+                text = join_result(text.splitlines(), remove_newline=True)
         if not text:
             self.status.showMessage("当前结果为空，没有可复制的内容")
             return
         QGuiApplication.clipboard().setText(text)
-        self.status.showMessage(f"已复制当前结果（{len(text)} 字符）")
+        message = "已复制为一行" if single_line else "已复制当前结果"
+        self.status.showMessage(f"{message}（{len(text)} 字符）")
 
 
 def main() -> None:

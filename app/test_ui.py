@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,6 +36,9 @@ class MainWindowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.window.deleteLater()
         self.app.processEvents()
+
+    def _button(self, text: str) -> QPushButton:
+        return next(button for button in self.window.findChildren(QPushButton) if button.text() == text)
 
     def test_add_comma_preserves_duplicates(self) -> None:
         self.window.panel_a.set_text("x\nx\ny")
@@ -80,6 +84,46 @@ class MainWindowTests(unittest.TestCase):
             button.click()
             self.assertEqual(clipboard.text(), "先前的文本结果")
 
+    def test_copy_formatted_lines_as_one_preserves_original_result(self) -> None:
+        self.window.panel_a.set_text("a b\na b\nc")
+        self._button("加引号逗号").click()
+        original = "'a b',\n'a b',\n'c'"
+        clipboard = QMimeData()
+        with patch.object(QGuiApplication, "clipboard", return_value=clipboard):
+            self._button("复制为一行").click()
+            self.assertEqual(clipboard.text(), "'a b','a b','c'")
+            self.assertEqual(self.window.panel_r.text(), original)
+            self.assertFalse(self.window.cb_remove_newline.isChecked())
+            self._button("复制结果").click()
+            self.assertEqual(clipboard.text(), original)
+
+    def test_copy_json_as_one_line_preserves_keys_numbers_and_strings(self) -> None:
+        self.window.panel_r.set_text("旧文本结果")
+        number = "0.123456789012345678901"
+        value = "a\u00a0b\u2028c\x85d"
+        self.window.panel_a.set_text(f'{{"x":{number},"x":"{value}"}}')
+        self.window.op_json()
+        original = self.window.json_view.document().toRawText()
+        clipboard = QMimeData()
+        with patch.object(QGuiApplication, "clipboard", return_value=clipboard):
+            self._button("复制为一行").click()
+        copied = clipboard.text()
+        self.assertEqual(copied.splitlines(), [copied])
+        self.assertEqual(json.loads(copied, object_pairs_hook=list, parse_float=str),
+                         [("x", number), ("x", value)])
+        self.assertEqual(self.window.json_view.document().toRawText(), original)
+        self.assertEqual(self.window.tabs.currentIndex(), 1)
+
+    def test_empty_single_line_result_keeps_clipboard(self) -> None:
+        clipboard = QMimeData()
+        clipboard.setText("已复制的内容")
+        with patch.object(QGuiApplication, "clipboard", return_value=clipboard):
+            for tab in (0, 1):
+                with self.subTest(tab=tab):
+                    self.window.tabs.setCurrentIndex(tab)
+                    self._button("复制为一行").click()
+                    self.assertEqual(clipboard.text(), "已复制的内容")
+
     def test_minimum_window_keeps_commands_and_editors_visible(self) -> None:
         self.window.resize(760, 520)
         self.window.show()
@@ -90,6 +134,7 @@ class MainWindowTests(unittest.TestCase):
             *self.window.findChildren(QPushButton, "formatAction"),
             self.window.findChild(QToolButton, "themeMenu"),
             self.window.findChild(QPushButton, "copyAction"),
+            self._button("复制为一行"),
             self.window.cb_ignore_case, self.window.cb_trim, self.window.cb_remove_newline,
         ]
         for control in controls:
