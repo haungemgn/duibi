@@ -1,5 +1,9 @@
 """核心逻辑测试：运行 `python test_core.py` 验证功能正确。"""
 
+import json
+import sys
+import unittest
+
 try:
     from .core import (
         add_comma,
@@ -30,74 +34,76 @@ except ImportError:
     )
 
 
-def check(name, got, expected):
-    status = "OK " if got == expected else "FAIL"
-    if got != expected:
-        print(f"[{status}] {name}\n   期望: {expected}\n   实际: {got}")
-    else:
-        print(f"[{status}] {name}")
-    return got == expected
+class CoreTests(unittest.TestCase):
+    def test_split_lines(self):
+        self.assertEqual(split_lines("a\n\n b \nc\n"), ["a", " b ", "c"])
+        self.assertEqual(split_lines("a\n b \nc", trim_each=True), ["a", "b", "c"])
+        self.assertEqual(split_lines("a\r\nb\rc"), ["a", "b", "c"])
 
+    def test_set_operations(self):
+        a = ["1", "2", "2", "3", "3", "3"]
+        b = ["3", "4", "5"]
+        self.assertEqual(distinct(a), ["1", "2", "3"])
+        self.assertEqual(duplicates(a), ["2", "3"])
+        self.assertEqual(difference(a, b), ["1", "2"])
+        self.assertEqual(intersection(a, b), ["3"])
+        self.assertEqual(union(a, b), ["1", "2", "3", "4", "5"])
 
-def check_raises(name, callback, exception_type):
-    try:
-        callback()
-    except exception_type:
-        print(f"[OK ] {name}")
-        return True
-    except Exception as exc:
-        print(f"[FAIL] {name}\n   期望异常: {exception_type.__name__}\n   实际异常: {type(exc).__name__}")
-        return False
-    print(f"[FAIL] {name}\n   期望异常: {exception_type.__name__}\n   实际: 未抛出异常")
-    return False
+    def test_ignore_case_preserves_first_spelling_and_order(self):
+        a = ["Z", "Straße", "X", "z", "STRASSE", "y", "Y", "x"]
+        b = ["strasse", "x", "W", "w"]
+        self.assertEqual(distinct(a, ignore_case=True), ["Z", "Straße", "X", "y"])
+        self.assertEqual(difference(a, b, ignore_case=True), ["Z", "y"])
+        self.assertEqual(intersection(a, b, ignore_case=True), ["Straße", "X"])
+        self.assertEqual(union(a, b, ignore_case=True), ["Z", "Straße", "X", "y", "W"])
 
+    def test_comma_formatting(self):
+        self.assertEqual(add_comma(["a", "b", "c"]), ["a,", "b,", "c"])
+        self.assertEqual(add_comma(["a", "b"], with_quote=True), ["'a',", "'b'"])
+        self.assertEqual(add_comma(["a", "a"]), ["a,", "a"])
+        self.assertEqual(remove_comma(["a,", "b,", "c"]), ["a", "b", "c"])
+        self.assertEqual(remove_comma_quote(["'a',", "'b'"], "'"), ["a", "b"])
+        self.assertEqual(remove_comma_quote(['"a",', '"b"'], '"'), ["a", "b"])
+        self.assertEqual(remove_comma_quote(["'a,"], "'"), ["'a"])
+        with self.assertRaises(ValueError):
+            remove_comma_quote(["a"], "invalid")
 
-def run():
-    ok = True
-    a = ["1", "2", "2", "3", "3", "3"]
-    b = ["3", "4", "5"]
+    def test_join_result(self):
+        self.assertEqual(join_result(["a", "b"]), "a\nb")
+        self.assertEqual(join_result(["a", "b"], remove_newline=True), "ab")
 
-    ok &= check("split_lines 过滤空行", split_lines("a\n\n b \nc\n"), ["a", " b ", "c"])
-    ok &= check("split_lines trim", split_lines("a\n b \nc", trim_each=True), ["a", "b", "c"])
-    ok &= check("split_lines 多种换行符", split_lines("a\r\nb\rc"), ["a", "b", "c"])
-    ok &= check("distinct", distinct(a), ["1", "2", "3"])
-    ok &= check("duplicates", duplicates(a), ["2", "3"])
-    ok &= check("difference A-B", difference(a, b), ["1", "2"])
-    ok &= check("intersection", intersection(a, b), ["3"])
-    ok &= check("union", union(a, b), ["1", "2", "3", "4", "5"])
-    ok &= check("ignore_case distinct", distinct(["A", "a", "B"], ignore_case=True), ["A", "B"])
-    ok &= check(
-        "ignore_case Unicode casefold",
-        distinct(["Straße", "STRASSE"], ignore_case=True),
-        ["Straße"],
-    )
-    ok &= check("add_comma", add_comma(["a", "b", "c"]), ["a,", "b,", "c"])
-    ok &= check("add_comma quote", add_comma(["a", "b"], with_quote=True), ["'a',", "'b'"])
-    ok &= check("add_comma 保留重复项", add_comma(["a", "a"]), ["a,", "a"])
-    ok &= check("remove_comma", remove_comma(["a,", "b,", "c"]), ["a", "b", "c"])
-    ok &= check("remove_comma_quote single", remove_comma_quote(["'a',", "'b'"], "'"), ["a", "b"])
-    ok &= check("remove_comma_quote double", remove_comma_quote(['"a",', '"b"'], '"'), ["a", "b"])
-    ok &= check("remove_comma_quote 不破坏不成对引号", remove_comma_quote(["'a,"], "'"), ["'a"])
-    ok &= check_raises(
-        "remove_comma_quote 拒绝无效引号",
-        lambda: remove_comma_quote(["a"], "`"),
-        ValueError,
-    )
-    ok &= check("join_result", join_result(["a", "b"]), "a\nb")
-    ok &= check("join_result remove_newline", join_result(["a", "b"], remove_newline=True), "ab")
+    def test_json_validation(self):
+        self.assertTrue(to_json_pretty('{"b":1,"a":[1,2]}')[0])
+        for source in ("{not json}", "NaN", "Infinity", "-Infinity"):
+            with self.subTest(source=source):
+                self.assertFalse(to_json_pretty(source)[0])
 
-    good, result = to_json_pretty('{"b":1,"a":[1,2]}')
-    ok &= check("to_json_pretty ok", good, True)
-    bad, _ = to_json_pretty("{not json}")
-    ok &= check("to_json_pretty 错误", bad, False)
-    for value in ("NaN", "Infinity", "-Infinity"):
-        valid, _ = to_json_pretty(value)
-        ok &= check(f"to_json_pretty 拒绝 {value}", valid, False)
+    def test_json_keeps_duplicate_keys_and_original_number_spelling(self):
+        source = '{"a":0.1234567890123456789,"a":1e400,"b":-0}'
+        expected = '{\n  "a": 0.1234567890123456789,\n  "a": 1e400,\n  "b": -0\n}'
+        self.assertEqual(to_json_pretty(source), (True, expected))
 
-    print("\n全部通过" if ok else "\n存在失败")
-    return ok
+    def test_json_keeps_string_contents_and_escape_sequences(self):
+        token = r'"中文 : { [ , ] } \" \\ \/ \t \ud800"'
+        self.assertEqual(to_json_pretty(f"[{token}]"), (True, f"[\n  {token}\n]"))
+
+    def test_json_checks_only_standard_whitespace(self):
+        self.assertFalse(to_json_pretty("\u00a0true")[0])
+        self.assertEqual(to_json_pretty("  \r\n\t"), (False, "输入为空"))
+
+    def test_json_reports_excessive_nesting(self):
+        depth = max(10_000, sys.getrecursionlimit() + 1)
+        ok, message = to_json_pretty("[" * depth + "]" * depth)
+        self.assertFalse(ok)
+        self.assertIn("嵌套", message)
+
+    def test_json_indent_and_empty_containers(self):
+        value = {"a": [None, {}, []], "b": True}
+        for indent in (2, 0, -1, "\t", None):
+            with self.subTest(indent=indent):
+                self.assertEqual(to_json_pretty(json.dumps(value), indent),
+                                 (True, json.dumps(value, indent=indent)))
 
 
 if __name__ == "__main__":
-    import sys
-    sys.exit(0 if run() else 1)
+    unittest.main()

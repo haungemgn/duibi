@@ -239,9 +239,14 @@ QSplitter::handle {{
 class JsonHighlighter(QSyntaxHighlighter):
     """简单的 JSON 语法高亮，随主题切换颜色。"""
 
+    token_pattern = QRegularExpression(
+        r'(?<string>"(?:[^"\\]++|\\.)*")(?<colon>\s*:)?'
+        r'|(?<number>-?\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b)'
+        r'|\b(?:true|false|null)\b'
+    )
+
     def __init__(self, document):
         super().__init__(document)
-        self.rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
         self.set_theme(THEMES["white"])
 
     def set_theme(self, theme: dict[str, str]) -> None:
@@ -252,21 +257,23 @@ class JsonHighlighter(QSyntaxHighlighter):
                 f.setFontWeight(QFont.Bold)
             return f
 
-        # 通用字符串先处理，键名规则后处理，确保键名颜色不会被覆盖。
-        self.rules = [
-            (QRegularExpression(r'"(\\.|[^"\\])*"'), fmt(theme["json_string"])),
-            (QRegularExpression(r'"(\\.|[^"\\])*"(?=\s*:)'), fmt(theme["json_key"], True)),
-            (QRegularExpression(r"-?\b\d+(\.\d+)?([eE][+-]?\d+)?\b"), fmt(theme["json_number"])),
-            (QRegularExpression(r"\b(true|false|null)\b"), fmt(theme["json_literal"], True)),
-        ]
+        self.string_format = fmt(theme["json_string"])
+        self.key_format = fmt(theme["json_key"], True)
+        self.number_format = fmt(theme["json_number"])
+        self.literal_format = fmt(theme["json_literal"], True)
         self.rehighlight()
 
     def highlightBlock(self, text: str) -> None:
-        for pattern, char_fmt in self.rules:
-            it = pattern.globalMatch(text)
-            while it.hasNext():
-                m = it.next()
-                self.setFormat(m.capturedStart(), m.capturedLength(), char_fmt)
+        matches = self.token_pattern.globalMatch(text)
+        while matches.hasNext():
+            match = matches.next()
+            if match.hasCaptured("string"):
+                char_format = self.key_format if match.hasCaptured("colon") else self.string_format
+                length = match.capturedLength("string")
+            else:
+                char_format = self.number_format if match.hasCaptured("number") else self.literal_format
+                length = match.capturedLength()
+            self.setFormat(match.capturedStart(), length, char_format)
 
 
 class TextPanel(QWidget):
@@ -294,38 +301,46 @@ class TextPanel(QWidget):
         font = QFont("Consolas", 10)
         font.setStyleHint(QFont.Monospace)
         self.edit.setFont(font)
+        self._line_count = 0
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
         self._count_timer.setInterval(150)
-        self._count_timer.timeout.connect(self._update_count)
+        self._count_timer.timeout.connect(self.lines)
         self.edit.textChanged.connect(self._count_timer.start)
         layout.addWidget(self.edit)
 
     def apply_theme(self, theme: dict[str, str]) -> None:
         self.count_label.setStyleSheet(f"color:{theme['muted']};")
 
-    def _update_count(self) -> None:
-        text = self.edit.toPlainText()
-        if not text:
-            self.count_label.setText("0 行")
-            return
-        non_empty = sum(1 for ln in text.split("\n") if ln.strip())
-        self.count_label.setText(f"{non_empty} 行")
-
     def text(self) -> str:
-        return self.edit.toPlainText()
+        # toPlainText() 会把不换行空格改成普通空格。只还原 Qt 的段落分隔符。
+        return self.edit.document().toRawText().replace("\u2029", "\n")
+
+    def lines(self, trim_each: bool = False) -> list[str]:
+        rows = split_lines(self.text(), trim_each)
+        self._count_timer.stop()
+        self._line_count = len(rows)
+        self.count_label.setText(f"{self._line_count} 行")
+        return rows
+
+    def line_count(self) -> int:
+        if self._count_timer.isActive():
+            self.lines()
+        return self._line_count
 
     def set_text(self, value: str) -> None:
         self.edit.setPlainText(value)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, settings: QSettings | None = None):
         super().__init__()
         self.setWindowTitle("数据对比工具")
         self.resize(1100, 720)
         self.setMinimumSize(760, 520)
-        self.settings = QSettings("DataCompareTool", "DataCompareTool")
+        self.settings = (
+            settings if settings is not None else QSettings("DataCompareTool", "DataCompareTool")
+        )
         self.current_theme_key = "white"
         self.section_labels: list[QLabel] = []
 
@@ -385,7 +400,7 @@ class MainWindow(QMainWindow):
         saved_theme = self.settings.value("theme", "white", str)
         if saved_theme not in THEMES:
             saved_theme = "white"
-        self._apply_theme(saved_theme)
+        self.theme_buttons[saved_theme].setChecked(True)
         self._restore_settings()
         self.status.showMessage("就绪 — 左侧 A，右侧 B，下方为结果")
 
@@ -454,10 +469,6 @@ class MainWindow(QMainWindow):
             label.setStyleSheet(f"color:{theme['muted']}; font-size:11px;")
 
         self.json_highlighter.set_theme(theme)
-
-        btn = self.theme_buttons.get(theme_key)
-        if btn is not None and not btn.isChecked():
-            btn.setChecked(True)
 
         self.status.showMessage(f"已切换为{theme['name']}背景")
 
@@ -547,17 +558,17 @@ class MainWindow(QMainWindow):
         )
 
     def _lines_a(self) -> list[str]:
-        return split_lines(self.panel_a.text(), self.cb_trim.isChecked())
+        return self.panel_a.lines(self.cb_trim.isChecked())
 
     def _lines_b(self) -> list[str]:
-        return split_lines(self.panel_b.text(), self.cb_trim.isChecked())
+        return self.panel_b.lines(self.cb_trim.isChecked())
 
     def _show_result(self, lines: list[str], op_name: str) -> None:
         opts = self._options()
         self.panel_r.set_text(join_result(lines, opts.remove_newline))
         self.tabs.setCurrentIndex(0)
-        a_n = len(self._lines_a())
-        b_n = len(self._lines_b())
+        a_n = self.panel_a.line_count()
+        b_n = self.panel_b.line_count()
         self.status.showMessage(
             f"A: {a_n}  B: {b_n}  R: {len(lines)}   ({op_name})"
         )
@@ -610,9 +621,8 @@ class MainWindow(QMainWindow):
         self.status.showMessage("已互换 A、B")
 
     def op_clear(self) -> None:
-        has_content = any(
-            (self.panel_a.text(), self.panel_b.text(), self.panel_r.text(), self.json_view.toPlainText())
-        )
+        editors = (self.panel_a.edit, self.panel_b.edit, self.panel_r.edit, self.json_view)
+        has_content = any(not editor.document().isEmpty() for editor in editors)
         if not has_content:
             self.status.showMessage("当前没有需要清空的内容")
             return

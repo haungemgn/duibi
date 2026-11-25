@@ -3,20 +3,23 @@ setlocal
 cd /d "%~dp0"
 
 echo Starting Data Compare Tool...
-where python >nul 2>nul
+for %%P in (python.exe) do set "PYTHON_EXE=%%~$PATH:P"
+if not defined PYTHON_EXE goto :no_python
+"%PYTHON_EXE%" -c "import sys; sys.exit(sys.version_info < (3, 10))"
 if errorlevel 1 goto :no_python
 
-python -c "import PySide6" >nul 2>nul
+"%PYTHON_EXE%" -c "import PySide6"
 if errorlevel 1 goto :no_pyside6
 
-where pythonw >nul 2>nul
-if errorlevel 1 goto :run_console
+for %%P in ("%PYTHON_EXE%") do set "PYTHONW_EXE=%%~dpPpythonw.exe"
+if not exist "%PYTHONW_EXE%" goto :run_console
 
-start "" pythonw -m app
+start "" "%PYTHONW_EXE%" -m app
+if errorlevel 1 goto :run_failed
 exit /b 0
 
 :run_console
-python -m app
+"%PYTHON_EXE%" -m app
 if errorlevel 1 goto :run_failed
 exit /b 0
 

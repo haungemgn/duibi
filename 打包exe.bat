@@ -7,7 +7,7 @@ echo ============================================
 echo   Build Data Compare Tool as a single EXE
 echo ============================================
 
-where python >nul 2>nul
+python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>nul
 if errorlevel 1 goto :no_python
 
 echo [1/2] Installing or checking build dependencies...

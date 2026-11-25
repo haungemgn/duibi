@@ -10,7 +10,10 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import chain
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,14 +27,9 @@ class Options:
 
 def split_lines(text: str, trim_each: bool = False) -> list[str]:
     """按行拆分，过滤空白行。trim_each 为 True 时对每行去首尾空格。"""
-    lines = text.splitlines()
-    result: list[str] = []
-    for line in lines:
-        if trim_each:
-            line = line.strip()
-        if line.strip():
-            result.append(line)
-    return result
+    if trim_each:
+        return [line for line in map(str.strip, text.splitlines()) if line]
+    return [line for line in text.splitlines() if line and not line.isspace()]
 
 
 def _key(value: str, ignore_case: bool) -> str:
@@ -39,12 +37,14 @@ def _key(value: str, ignore_case: bool) -> str:
     return value.casefold() if ignore_case else value
 
 
-def distinct(lines: list[str], ignore_case: bool = False) -> list[str]:
+def distinct(lines: Iterable[str], ignore_case: bool = False) -> list[str]:
     """去重，保持首次出现顺序。"""
+    if not ignore_case:
+        return list(dict.fromkeys(lines))
     seen: set[str] = set()
     out: list[str] = []
     for item in lines:
-        k = _key(item, ignore_case)
+        k = item.casefold()
         if k not in seen:
             seen.add(k)
             out.append(item)
@@ -69,33 +69,33 @@ def duplicates(lines: list[str], ignore_case: bool = False) -> list[str]:
 
 def difference(a: list[str], b: list[str], ignore_case: bool = False) -> list[str]:
     """A 有 B 没有（A - B），去重并保持 A 的顺序。"""
-    b_keys = {_key(x, ignore_case) for x in b}
-    seen: set[str] = set()
+    excluded = {_key(x, ignore_case) for x in b}
     out: list[str] = []
     for item in a:
         k = _key(item, ignore_case)
-        if k not in b_keys and k not in seen:
-            seen.add(k)
+        if k not in excluded:
+            excluded.add(k)
             out.append(item)
     return out
 
 
 def intersection(a: list[str], b: list[str], ignore_case: bool = False) -> list[str]:
     """交集（A ∩ B），去重并保持 A 的顺序。"""
-    b_keys = {_key(x, ignore_case) for x in b}
-    seen: set[str] = set()
+    remaining = {_key(x, ignore_case) for x in b}
     out: list[str] = []
     for item in a:
         k = _key(item, ignore_case)
-        if k in b_keys and k not in seen:
-            seen.add(k)
+        if k in remaining:
+            remaining.remove(k)
             out.append(item)
+            if not remaining:
+                break
     return out
 
 
 def union(a: list[str], b: list[str], ignore_case: bool = False) -> list[str]:
     """并集（A ∪ B），去重并保持先 A 后 B 的顺序。"""
-    return distinct(a + b, ignore_case)
+    return distinct(chain(a, b), ignore_case)
 
 
 def add_comma(lines: list[str], with_quote: bool = False) -> list[str]:
@@ -133,16 +133,42 @@ def _reject_non_standard_json(value: str) -> None:
     raise ValueError(f"不支持非标准 JSON 数值: {value}")
 
 
-def to_json_pretty(text: str, indent: int = 2) -> tuple[bool, str]:
+_JSON_TOKENS = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"|[{}\[\],:]|[^{}\[\],: \t\r\n]+')
+
+
+def to_json_pretty(text: str, indent: int | str | None = 2) -> tuple[bool, str]:
     """JSON 整形。返回 (是否成功, 结果或错误信息)。"""
-    text = text.strip()
-    if not text:
+    if not text.strip(" \r\n\t"):
         return False, "输入为空"
     try:
-        obj = json.loads(text, parse_constant=_reject_non_standard_json)
-        return True, json.dumps(obj, indent=indent, ensure_ascii=False, allow_nan=False)
-    except (json.JSONDecodeError, ValueError) as e:
+        # 标准库负责语法校验。保留数字原文可避免无意义的大整数和浮点转换。
+        json.loads(text, parse_int=str, parse_float=str, parse_constant=_reject_non_standard_json)
+    except ValueError as e:
         return False, f"JSON 解析错误: {e}"
+    except RecursionError:
+        return False, "JSON 嵌套过深，无法整形"
+
+    # 直接排版已校验的原文，避免字典覆盖重名字段或重新编码改写数字与转义。
+    unit = indent if isinstance(indent, str) else " " * (indent or 0)
+    parts: list[str] = []
+    previous = ""
+    depth = 0
+    for match in _JSON_TOKENS.finditer(text):
+        token = match.group()
+        if token in ("}", "]"):
+            depth -= 1
+            if indent is not None and previous not in ("{", "["):
+                parts.append("\n" + unit * depth)
+        elif indent is not None and previous in ("{", "[", ","):
+            parts.append("\n" + unit * depth)
+        elif previous == ",":
+            parts.append(" ")
+
+        parts.append(": " if token == ":" else token)
+        if token in ("{", "["):
+            depth += 1
+        previous = token
+    return True, "".join(parts)
 
 
 def join_result(lines: list[str], remove_newline: bool = False) -> str:
