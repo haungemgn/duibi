@@ -295,7 +295,26 @@ class MainWindow(QMainWindow):
         self.top_split.addWidget(self.panel_b)
         self.top_split.setSizes([500, 500])
         layout.addWidget(self.top_split, 1)
+        layout.addLayout(self._format_actions())
         return group
+
+    def _format_actions(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(label("格式化 A", "formatLabel"))
+        formats = [
+            ("加逗号", self.op_add_comma),
+            ("加引号逗号", self.op_add_quote),
+            ("去逗号", self.op_remove_comma),
+            ("去逗号+单引号", lambda: self.op_remove_cq("'")),
+            ("去逗号+双引号", lambda: self.op_remove_cq('"')),
+        ]
+        for text, callback in formats:
+            button = self._button(text, callback, f"对主数据 A 执行「{text}」", "formatAction")
+            self.operation_buttons[text] = button
+            row.addWidget(button)
+        row.addStretch()
+        return row
 
     def _build_results(self) -> QWidget:
         group = QWidget()
@@ -324,7 +343,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab("JSON")
         self.tabs.setAccessibleName("结果视图")
         header.addWidget(self.tabs)
-        self.panel_r = TextPanel("R", "文本结果", "运行左侧操作后，结果会显示在这里")
+        self.panel_r = TextPanel("R", "文本结果", "运行操作后，结果会显示在这里")
         header.addWidget(self.panel_r.count_label)
         header.addStretch()
         self.copy_button = self._button("复制结果", self.op_copy_result, "复制当前结果（Ctrl+Shift+C）", "copyAction")
@@ -452,19 +471,6 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(8)
         layout.addWidget(label("格式工具", "railHeading"))
-        self.format_button = self._rail_menu("文本格式", "railMenu", "format")
-        formats = [
-            ("加逗号", self.op_add_comma),
-            ("加引号逗号", self.op_add_quote),
-            ("去逗号", self.op_remove_comma),
-            ("去逗号+单引号", lambda: self.op_remove_cq("'")),
-            ("去逗号+双引号", lambda: self.op_remove_cq('"')),
-        ]
-        for text, callback in formats:
-            self.format_button.menu().addAction(text, callback)
-            self.operation_buttons[text] = self.format_button
-        layout.addWidget(self.format_button)
-
         json_button = self._button("JSON 美化", self.op_json, "美化 A 中的 JSON（Ctrl+J）", "railAction")
         json_button.setIcon(icon_for("json", "#c5cce0"))
         json_button.setIconSize(QSize(18, 18))

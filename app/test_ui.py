@@ -10,8 +10,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QMimeData, QSettings, QSize
+from PySide6.QtCore import QMimeData, QSettings, QSize, Qt
 from PySide6.QtGui import QGuiApplication, QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolButton
 
 try:
@@ -40,12 +41,31 @@ class MainWindowTests(unittest.TestCase):
         self.window.op_add_comma()
         self.assertEqual(self.window.panel_r.text(), "x,\nx,\ny")
 
-    def test_format_menu_operates_on_primary_input(self) -> None:
-        self.window.panel_a.set_text("x\nx\ny")
-        menu = self.window.findChild(QToolButton, "railMenu").menu()
-        next(action for action in menu.actions() if action.text() == "加逗号").trigger()
-        self.assertEqual(self.window.panel_r.text(), "x,\nx,\ny")
-        self.assertEqual(self.window.tabs.currentIndex(), 0)
+    def test_format_buttons_operate_on_primary_input_in_one_click(self) -> None:
+        self.window.show()
+        self.app.processEvents()
+        buttons = {b.text(): b for b in self.window.findChildren(QPushButton, "formatAction")}
+        plain = "x\nx\ny"
+        comma = "x,\nx,\ny"
+        single = "'x',\n'x',\n'y'"
+        double = '"x",\n"x",\n"y"'
+        cases = [
+            ("加逗号", plain, comma),
+            ("加引号逗号", plain, single),
+            ("去逗号", comma, plain),
+            ("去逗号+单引号", single, plain),
+            ("去逗号+双引号", double, plain),
+        ]
+        self.assertCountEqual(buttons, [name for name, _, _ in cases])
+        for name, source, expected in cases:
+            with self.subTest(action=name):
+                self.window.panel_a.set_text(source)
+                self.window.panel_r.set_text("")
+                self.window.tabs.setCurrentIndex(1)
+                self.assertTrue(buttons[name].isVisible())
+                QTest.mouseClick(buttons[name], Qt.LeftButton)
+                self.assertEqual(self.window.panel_r.text(), expected)
+                self.assertEqual(self.window.tabs.currentIndex(), 0)
 
     def test_copy_button_uses_the_visible_result(self) -> None:
         self.window.panel_r.set_text("先前的文本结果")
@@ -67,7 +87,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(self.window.size(), QSize(760, 520))
         controls = [
             *self.window.findChildren(QPushButton, "railAction"),
-            self.window.findChild(QToolButton, "railMenu"),
+            *self.window.findChildren(QPushButton, "formatAction"),
             self.window.findChild(QToolButton, "themeMenu"),
             self.window.findChild(QPushButton, "copyAction"),
             self.window.cb_ignore_case, self.window.cb_trim, self.window.cb_remove_newline,

@@ -52,24 +52,24 @@ def build_stylesheet(theme: dict[str, str]) -> str:
     QLabel#railHint { color: #b2c0d8; background: transparent; font-size: 12px; }
     QPushButton[active="true"] QLabel#railHint { color: #e3e1ff; }
     QFrame#railRule { border: none; background-color: #354158; }
-    QPushButton#railAction, QToolButton#railMenu, QToolButton#themeMenu {
+    QPushButton#railAction, QToolButton#themeMenu {
         text-align: left; color: #e0e7f5; font-weight: 500;
         background: transparent; border: 1px solid transparent; border-radius: 6px;
         min-height: 28px; padding: 1px 8px;
     }
-    QPushButton#railAction:hover, QToolButton#railMenu:hover, QToolButton#themeMenu:hover {
+    QPushButton#railAction:hover, QToolButton#themeMenu:hover {
         background-color: #2a374e; color: #ffffff;
     }
-    QPushButton#railAction:pressed, QToolButton#railMenu:pressed, QToolButton#themeMenu:pressed {
+    QPushButton#railAction:pressed, QToolButton#themeMenu:pressed {
         background-color: #36445f;
     }
-    QPushButton#railAction[active="true"], QToolButton#railMenu[active="true"] {
+    QPushButton#railAction[active="true"] {
         background-color: #494392; color: #ffffff; font-weight: 600;
     }
-    QPushButton#railAction:focus, QToolButton#railMenu:focus, QToolButton#themeMenu:focus {
+    QPushButton#railAction:focus, QToolButton#themeMenu:focus {
         border-color: #b7b4ff;
     }
-    QToolButton#railMenu::menu-indicator, QToolButton#themeMenu::menu-indicator {
+    QToolButton#themeMenu::menu-indicator {
         subcontrol-origin: padding; subcontrol-position: right center; right: 5px;
     }
     QLabel#sectionTitle { font-size: 20px; font-weight: 700; }
@@ -94,15 +94,18 @@ def build_stylesheet(theme: dict[str, str]) -> str:
     QPlainTextEdit:focus { border-bottom-color: %(subtle_fg)s; }
     QCheckBox { spacing: 6px; color: %(secondary_fg)s; font-size: 12px; }
     QCheckBox:disabled { color: %(placeholder)s; }
-    QPushButton#secondaryAction, QPushButton#copyAction {
+    QPushButton#secondaryAction, QPushButton#copyAction, QPushButton#formatAction {
         background-color: %(card)s; color: %(secondary_fg)s; border: 1px solid %(border)s;
         padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
     }
-    QPushButton#secondaryAction:hover { background-color: %(recess)s; }
+    QLabel#formatLabel { color: %(muted)s; font-weight: 600; font-size: 12px; padding-right: 3px; }
+    QPushButton#formatAction { padding: 5px 8px; font-weight: 500; }
+    QPushButton#formatAction[active="true"] { background: %(subtle)s; color: %(subtle_fg)s; border-color: %(subtle_fg)s; }
+    QPushButton#secondaryAction:hover, QPushButton#formatAction:hover { background-color: %(recess)s; }
     QPushButton#copyAction { background-color: %(accent)s; color: %(on_accent)s; border-color: %(accent)s; }
     QPushButton#copyAction:hover { background-color: %(accent_hover)s; }
     QPushButton#secondaryAction:pressed, QPushButton#copyAction:pressed { background-color: %(subtle)s; color: %(subtle_fg)s; }
-    QPushButton#secondaryAction:focus { border-color: %(subtle_fg)s; }
+    QPushButton#secondaryAction:focus, QPushButton#formatAction:focus { border-color: %(subtle_fg)s; }
     QPushButton#copyAction:focus { border-color: %(fg)s; }
     QTabBar#resultTabs { background: transparent; }
     QTabBar#resultTabs::tab {
