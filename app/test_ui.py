@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QSettings
-from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QMimeData, QSettings, QSize
+from PySide6.QtGui import QGuiApplication, QTextCursor
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolButton
 
 try:
     from .main import MainWindow, THEMES
@@ -39,6 +39,70 @@ class MainWindowTests(unittest.TestCase):
         self.window.panel_a.set_text("x\nx\ny")
         self.window.op_add_comma()
         self.assertEqual(self.window.panel_r.text(), "x,\nx,\ny")
+
+    def test_format_menu_operates_on_primary_input(self) -> None:
+        self.window.panel_a.set_text("x\nx\ny")
+        menu = self.window.findChild(QToolButton, "railMenu").menu()
+        next(action for action in menu.actions() if action.text() == "加逗号").trigger()
+        self.assertEqual(self.window.panel_r.text(), "x,\nx,\ny")
+        self.assertEqual(self.window.tabs.currentIndex(), 0)
+
+    def test_copy_button_uses_the_visible_result(self) -> None:
+        self.window.panel_r.set_text("先前的文本结果")
+        self.window.panel_a.set_text('{"space":"a\u00a0b"}')
+        self.window.op_json()
+        button = self.window.findChild(QPushButton, "copyAction")
+        clipboard = QMimeData()
+        with patch.object(QGuiApplication, "clipboard", return_value=clipboard):
+            button.click()
+            self.assertEqual(clipboard.text(), '{\n  "space": "a\u00a0b"\n}')
+            self.window.tabs.setCurrentIndex(0)
+            button.click()
+            self.assertEqual(clipboard.text(), "先前的文本结果")
+
+    def test_minimum_window_keeps_commands_and_editors_visible(self) -> None:
+        self.window.resize(760, 520)
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual(self.window.size(), QSize(760, 520))
+        controls = [
+            *self.window.findChildren(QPushButton, "railAction"),
+            self.window.findChild(QToolButton, "railMenu"),
+            self.window.findChild(QToolButton, "themeMenu"),
+            self.window.findChild(QPushButton, "copyAction"),
+            self.window.cb_ignore_case, self.window.cb_trim, self.window.cb_remove_newline,
+        ]
+        for control in controls:
+            with self.subTest(control=control.text()):
+                self.assertTrue(control.isVisible())
+                self.assertTrue(control.visibleRegion().contains(control.rect().center()))
+        for panel in (self.window.panel_a, self.window.panel_b, self.window.panel_r):
+            viewport = panel.edit.viewport()
+            self.assertGreaterEqual(viewport.height(), 4 * panel.edit.fontMetrics().lineSpacing())
+
+    def test_restoring_old_collapsed_layout_reopens_all_editors(self) -> None:
+        self.window.show()
+        self.app.processEvents()
+        settings = self.window.settings
+        handle_width = self.window.top_split.handleWidth()
+        for name, splitter, sizes in (
+            ("top", self.window.top_split, [0, 800]),
+            ("main", self.window.main_split, [500, 0]),
+        ):
+            splitter.setHandleWidth(5)
+            splitter.setChildrenCollapsible(True)
+            splitter.setSizes(sizes)
+            self.assertIn(0, splitter.sizes())
+            settings.setValue(f"splitter/{name}", splitter.saveState())
+
+        reopened = MainWindow(settings=settings)
+        self.addCleanup(reopened.deleteLater)
+        reopened.show()
+        self.app.processEvents()
+        for splitter in (reopened.top_split, reopened.main_split):
+            self.assertGreater(min(splitter.sizes()), 0)
+            self.assertFalse(splitter.childrenCollapsible())
+            self.assertEqual(splitter.handleWidth(), handle_width)
 
     def test_distinct_preserves_non_breaking_spaces(self) -> None:
         self.window.panel_a.set_text("a b\na\u00a0b\na b")

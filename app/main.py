@@ -12,9 +12,10 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QRegularExpression, QSettings, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QMimeData, QRegularExpression, QSettings, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QColor,
     QCloseEvent,
     QFont,
@@ -25,24 +26,26 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QButtonGroup,
     QCheckBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QRadioButton,
+    QSizePolicy,
     QSplitter,
-    QTabWidget,
+    QStackedWidget,
+    QTabBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 try:
+    from app.styles import THEMES, application_icon, build_stylesheet, icon_for
     from app.core import (
         Options,
         add_comma,
@@ -58,6 +61,7 @@ try:
         union,
     )
 except ImportError:  # 兼容从 app 目录直接运行 main.py
+    from styles import THEMES, application_icon, build_stylesheet, icon_for
     from core import (
         Options,
         add_comma,
@@ -72,67 +76,6 @@ except ImportError:  # 兼容从 app 目录直接运行 main.py
         to_json_pretty,
         union,
     )
-
-
-THEMES: dict[str, dict[str, str]] = {
-    "white": {
-        "name": "白色",
-        "bg": "#ffffff",
-        "fg": "#1f2937",
-        "input_bg": "#ffffff",
-        "input_fg": "#111827",
-        "border": "#d1d5db",
-        "muted": "#6b7280",
-        "btn_bg": "#f9fafb",
-        "btn_hover": "#f3f4f6",
-        "btn_pressed": "#e5e7eb",
-        "primary_border": "#3b82f6",
-        "primary_fg": "#1d4ed8",
-        "primary_hover": "#e0ecff",
-        "json_key": "#7c3aed",
-        "json_string": "#15803d",
-        "json_number": "#2563eb",
-        "json_literal": "#b45309",
-    },
-    "gray": {
-        "name": "灰色",
-        "bg": "#e5e7eb",
-        "fg": "#111827",
-        "input_bg": "#f3f4f6",
-        "input_fg": "#111827",
-        "border": "#9ca3af",
-        "muted": "#4b5563",
-        "btn_bg": "#d1d5db",
-        "btn_hover": "#cbd5e1",
-        "btn_pressed": "#9ca3af",
-        "primary_border": "#2563eb",
-        "primary_fg": "#1e40af",
-        "primary_hover": "#bfdbfe",
-        "json_key": "#6d28d9",
-        "json_string": "#166534",
-        "json_number": "#1d4ed8",
-        "json_literal": "#92400e",
-    },
-    "black": {
-        "name": "黑色",
-        "bg": "#1e1e1e",
-        "fg": "#e5e7eb",
-        "input_bg": "#2d2d2d",
-        "input_fg": "#f3f4f6",
-        "border": "#4b5563",
-        "muted": "#9ca3af",
-        "btn_bg": "#374151",
-        "btn_hover": "#4b5563",
-        "btn_pressed": "#6b7280",
-        "primary_border": "#60a5fa",
-        "primary_fg": "#93c5fd",
-        "primary_hover": "#1e3a5f",
-        "json_key": "#c586c0",
-        "json_string": "#6a9955",
-        "json_number": "#569cd6",
-        "json_literal": "#dcdcaa",
-    },
-}
 
 
 def install_exception_handler() -> None:
@@ -163,77 +106,6 @@ def install_exception_handler() -> None:
         QMessageBox.critical(None, "程序发生错误", f"操作未能完成，请重试。{detail}")
 
     sys.excepthook = handle_exception
-
-
-def build_stylesheet(theme: dict[str, str]) -> str:
-    return f"""
-QWidget {{
-    font-size: 13px;
-    background: {theme["bg"]};
-    color: {theme["fg"]};
-}}
-QMainWindow {{
-    background: {theme["bg"]};
-}}
-QStatusBar {{
-    background: {theme["bg"]};
-    color: {theme["fg"]};
-    border-top: 1px solid {theme["border"]};
-}}
-QPushButton {{
-    padding: 6px 10px;
-    border: 1px solid {theme["border"]};
-    border-radius: 6px;
-    background: {theme["btn_bg"]};
-    color: {theme["fg"]};
-}}
-QPushButton:hover {{ background: {theme["btn_hover"]}; }}
-QPushButton:pressed {{ background: {theme["btn_pressed"]}; }}
-QPushButton[primary="true"] {{
-    border: 1px solid {theme["primary_border"]};
-    color: {theme["primary_fg"]};
-    font-weight: 600;
-}}
-QPushButton[primary="true"]:hover {{ background: {theme["primary_hover"]}; }}
-QPlainTextEdit {{
-    border: 1px solid {theme["border"]};
-    border-radius: 6px;
-    padding: 4px;
-    background: {theme["input_bg"]};
-    color: {theme["input_fg"]};
-    selection-background-color: {theme["primary_border"]};
-}}
-QTabWidget::pane {{
-    border: 1px solid {theme["border"]};
-    border-radius: 6px;
-    background: {theme["bg"]};
-}}
-QTabBar::tab {{
-    background: {theme["btn_bg"]};
-    color: {theme["fg"]};
-    border: 1px solid {theme["border"]};
-    padding: 6px 12px;
-    margin-right: 2px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-}}
-QTabBar::tab:selected {{
-    background: {theme["input_bg"]};
-    color: {theme["input_fg"]};
-}}
-QCheckBox, QRadioButton {{
-    color: {theme["fg"]};
-    spacing: 6px;
-}}
-QFrame {{
-    background: {theme["bg"]};
-    border: 1px solid {theme["border"]};
-    border-radius: 8px;
-}}
-QSplitter::handle {{
-    background: {theme["border"]};
-}}
-"""
 
 
 class JsonHighlighter(QSyntaxHighlighter):
@@ -287,31 +159,50 @@ class DataTextEdit(QPlainTextEdit):
         return mime
 
 
-class TextPanel(QWidget):
-    """带标题和行数统计的文本面板。"""
+def label(text: str, name: str) -> QLabel:
+    widget = QLabel(text)
+    widget.setObjectName(name)
+    return widget
 
-    def __init__(self, title: str, read_only: bool = False):
+
+def divider(name: str) -> QFrame:
+    line = QFrame()
+    line.setObjectName(name)
+    line.setFixedHeight(1)
+    return line
+
+
+class TextPanel(QFrame):
+    """数据编辑区；结果面板与 JSON 共用一个栏头。"""
+
+    def __init__(self, role: str, title: str, placeholder: str):
         super().__init__()
+        self.setObjectName("editorCard" if role != "R" else "resultBody")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        self.count_label = label("0 行", "countLabel")
 
-        header = QHBoxLayout()
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-weight:600;")
-        self.count_label = QLabel("0 行")
-        header.addWidget(self.title_label)
-        header.addStretch()
-        header.addWidget(self.count_label)
-        layout.addLayout(header)
+        if role != "R":
+            header = QHBoxLayout()
+            header.setContentsMargins(13, 10, 13, 10)
+            header.setSpacing(9)
+            badge = label(role, "panelBadge")
+            badge.setProperty("role", role)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedSize(26, 26)
+            header.addWidget(badge)
+            header.addWidget(label(title, "panelTitle"))
+            header.addStretch()
+            header.addWidget(self.count_label)
+            layout.addLayout(header)
+            layout.addWidget(divider("cardRule"))
 
         self.edit = DataTextEdit()
-        self.edit.setReadOnly(read_only)
+        self.edit.setAccessibleName(title)
         self.edit.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.edit.setPlaceholderText("在此粘贴/输入数据，每行一个…")
-        font = QFont("Consolas", 10)
-        font.setStyleHint(QFont.Monospace)
-        self.edit.setFont(font)
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.document().setDocumentMargin(11)
         self._line_count = 0
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
@@ -319,9 +210,6 @@ class TextPanel(QWidget):
         self._count_timer.timeout.connect(self.lines)
         self.edit.textChanged.connect(self._count_timer.start)
         layout.addWidget(self.edit)
-
-    def apply_theme(self, theme: dict[str, str]) -> None:
-        self.count_label.setStyleSheet(f"color:{theme['muted']};")
 
     def text(self) -> str:
         # toPlainText() 会把不换行空格改成普通空格。只还原 Qt 的段落分隔符。
@@ -347,73 +235,120 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: QSettings | None = None):
         super().__init__()
         self.setWindowTitle("数据对比工具")
-        self.resize(1100, 720)
+        self.resize(1120, 740)
         self.setMinimumSize(760, 520)
         self.settings = (
             settings if settings is not None else QSettings("DataCompareTool", "DataCompareTool")
         )
         self.current_theme_key = "white"
-        self.section_labels: list[QLabel] = []
+        self.operation_buttons = {}
+        self.active_button = None
+        self.cb_ignore_case = QCheckBox("忽略大小写")
+        self.cb_trim = QCheckBox("去首尾空格")
+        self.cb_remove_newline = QCheckBox("合并为一行")
+        self.cb_remove_newline.setToolTip("执行集合运算或文本格式化时，将输出合并为一行")
 
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.sidebar = self._build_sidebar()
+        root.addWidget(self.sidebar)
 
-        # ---- 选项行 ----
-        self.cb_remove_newline = QCheckBox("结果去回车")
-        self.cb_ignore_case = QCheckBox("忽略大小写")
-        self.cb_trim = QCheckBox("去首尾空格")
-        opt_row = QHBoxLayout()
-        opt_row.addWidget(QLabel("选项："))
-        opt_row.addWidget(self.cb_remove_newline)
-        opt_row.addWidget(self.cb_ignore_case)
-        opt_row.addWidget(self.cb_trim)
-        opt_row.addStretch()
-        opt_row.addWidget(self._build_theme_selector())
-        root.addLayout(opt_row)
+        workspace = QWidget()
+        workspace.setObjectName("workspace")
+        root.addWidget(workspace, 1)
+        work = QVBoxLayout(workspace)
+        work.setContentsMargins(18, 14, 18, 12)
+        self.main_split = QSplitter(Qt.Vertical)
+        self.main_split.addWidget(self._build_inputs())
+        self.main_split.addWidget(self._build_results())
+        self.main_split.setSizes([390, 290])
+        work.addWidget(self.main_split)
+        self.status = self.statusBar()
+        self._setup_shortcuts()
+        saved_theme = self.settings.value("theme", "white", str)
+        self._apply_theme(saved_theme if saved_theme in THEMES else "white")
+        self._restore_settings()
+        self.panel_a.edit.setFocus()
+        self.status.showMessage("就绪")
 
-        # ---- 工具栏按钮 ----
-        self.toolbar_frame = self._build_buttons()
-        root.addWidget(self.toolbar_frame)
-
-        # ---- 文本区 ----
-        self.panel_a = TextPanel("A 集合")
-        self.panel_b = TextPanel("B 集合")
-        self.panel_r = TextPanel("R 结果", read_only=False)
-
+    def _build_inputs(self) -> QWidget:
+        group = QWidget()
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        heading = QHBoxLayout()
+        heading.setSpacing(12)
+        heading.addWidget(label("输入数据", "sectionTitle"))
+        heading.addStretch()
+        heading.addWidget(self.cb_ignore_case)
+        heading.addWidget(self.cb_trim)
+        self.swap_button = self._button("交换 A / B", self.op_swap, "交换两组输入（Ctrl+R）", "secondaryAction")
+        heading.addWidget(self.swap_button)
+        layout.addLayout(heading)
+        self.panel_a = TextPanel("A", "主数据", "粘贴主数据，每行一项")
+        self.panel_b = TextPanel("B", "对照数据", "粘贴用于对照的数据，每行一项")
         self.top_split = QSplitter(Qt.Horizontal)
         self.top_split.addWidget(self.panel_a)
         self.top_split.addWidget(self.panel_b)
-        self.top_split.setSizes([550, 550])
+        self.top_split.setSizes([500, 500])
+        layout.addWidget(self.top_split, 1)
+        return group
 
-        # 结果区用 Tab：纯文本 + JSON 视图
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.panel_r, "R 结果")
+    def _build_results(self) -> QWidget:
+        group = QWidget()
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        heading = QHBoxLayout()
+        heading.addWidget(label("处理结果", "sectionTitle"))
+        heading.addStretch()
+        heading.addWidget(self.cb_remove_newline)
+        layout.addLayout(heading)
+
+        card = QFrame()
+        card.setObjectName("resultCard")
+        layout.addWidget(card, 1)
+        body = QVBoxLayout(card)
+        body.setContentsMargins(1, 1, 1, 1)
+        body.setSpacing(0)
+        header = QHBoxLayout()
+        header.setContentsMargins(12, 6, 12, 6)
+        header.setSpacing(12)
+        self.tabs = QTabBar()
+        self.tabs.setObjectName("resultTabs")
+        self.tabs.setDrawBase(False)
+        self.tabs.addTab("文本")
+        self.tabs.addTab("JSON")
+        self.tabs.setAccessibleName("结果视图")
+        header.addWidget(self.tabs)
+        self.panel_r = TextPanel("R", "文本结果", "运行左侧操作后，结果会显示在这里")
+        header.addWidget(self.panel_r.count_label)
+        header.addStretch()
+        self.copy_button = self._button("复制结果", self.op_copy_result, "复制当前结果（Ctrl+Shift+C）", "copyAction")
+        header.addWidget(self.copy_button)
+        body.addLayout(header)
+        body.addWidget(divider("cardRule"))
+
         self.json_view = DataTextEdit()
+        self.json_view.setAccessibleName("JSON 结果")
         self.json_view.setReadOnly(True)
-        jfont = QFont("Consolas", 10)
-        jfont.setStyleHint(QFont.Monospace)
-        self.json_view.setFont(jfont)
+        self.json_view.setPlaceholderText("在 A 中粘贴 JSON，点击左侧的「JSON 美化」")
+        self.json_view.document().setDocumentMargin(11)
         self.json_highlighter = JsonHighlighter(self.json_view.document())
-        self.tabs.addTab(self.json_view, "JSON 视图")
+        self.results = QStackedWidget()
+        self.results.addWidget(self.panel_r)
+        self.results.addWidget(self.json_view)
+        self.tabs.currentChanged.connect(self._result_tab_changed)
+        body.addWidget(self.results, 1)
+        return group
 
-        self.main_split = QSplitter(Qt.Vertical)
-        self.main_split.addWidget(self.top_split)
-        self.main_split.addWidget(self.tabs)
-        self.main_split.setSizes([400, 320])
-        root.addWidget(self.main_split, 1)
-
-        self.status = self.statusBar()
-
-        self._setup_shortcuts()
-        saved_theme = self.settings.value("theme", "white", str)
-        if saved_theme not in THEMES:
-            saved_theme = "white"
-        self.theme_buttons[saved_theme].setChecked(True)
-        self._restore_settings()
-        self.status.showMessage("就绪 — 左侧 A，右侧 B，下方为结果")
+    def _result_tab_changed(self, index: int) -> None:
+        self.results.setCurrentIndex(index)
+        self.panel_r.count_label.setVisible(index == 0)
+        self.cb_remove_newline.setEnabled(index == 0)
 
     def _restore_settings(self) -> None:
         """恢复不包含业务数据的界面状态和用户选项。"""
@@ -428,12 +363,17 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value("window/geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        top_state = self.settings.value("splitter/top")
-        if top_state is not None:
-            self.top_split.restoreState(top_state)
-        main_state = self.settings.value("splitter/main")
-        if main_state is not None:
-            self.main_split.restoreState(main_state)
+        for splitter, key, defaults in (
+            (self.top_split, "splitter/top", [500, 500]),
+            (self.main_split, "splitter/main", [390, 290]),
+        ):
+            state = self.settings.value(key)
+            if state is not None:
+                splitter.restoreState(state)
+            splitter.setChildrenCollapsible(False)
+            splitter.setHandleWidth(12)
+            if 0 in splitter.sizes():
+                splitter.setSizes(defaults)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """退出时保存界面布局和选项，不保存用户输入内容。"""
@@ -446,102 +386,131 @@ class MainWindow(QMainWindow):
         self.settings.sync()
         super().closeEvent(event)
 
-    def _build_theme_selector(self) -> QWidget:
-        box = QWidget()
-        row = QHBoxLayout(box)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
-        row.addWidget(QLabel("背景："))
+    @staticmethod
+    def _button(text, callback, tip, name) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName(name)
+        button.setToolTip(tip)
+        button.setCursor(Qt.PointingHandCursor)
+        button.clicked.connect(callback)
+        return button
 
-        self.theme_group = QButtonGroup(self)
-        self.theme_buttons: dict[str, QRadioButton] = {}
+    def _rail_menu(self, text: str, name: str, icon: str) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName(name)
+        button.setText(text)
+        button.setIcon(icon_for(icon, "#c5cce0"))
+        button.setIconSize(QSize(18, 18))
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setPopupMode(QToolButton.InstantPopup)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setMenu(QMenu(button))
+        return button
+
+    def _build_sidebar(self) -> QFrame:
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(184)
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(12, 16, 12, 12)
+        layout.setSpacing(3)
+        brand = QHBoxLayout()
+        brand.setContentsMargins(4, 0, 0, 14)
+        brand.setSpacing(10)
+        mark = label("", "brandMark")
+        mark.setFixedSize(34, 34)
+        mark.setAlignment(Qt.AlignCenter)
+        logo = icon_for("brand", "#ffffff", 22)
+        mark.setPixmap(logo.pixmap(QSize(22, 22), self.devicePixelRatioF()))
+        brand.addWidget(mark)
+        brand.addWidget(label("数据对比", "brandName"))
+        brand.addStretch()
+        layout.addLayout(brand)
+        layout.addWidget(divider("railRule"))
+        layout.addSpacing(7)
+        layout.addWidget(label("集合运算", "railHeading"))
+        actions = [
+            ("去除重复", "A", "distinct", self.op_distinct, "A 去重", "对 A 去重，保留首次出现的行（Ctrl+1）"),
+            ("查找重复", "A", "duplicates", self.op_duplicate, "A 中重复", "列出 A 中重复的行"),
+            ("差集", "A − B", "difference", self.op_difference, "差集 A 有 B 没有", "A 有、B 没有的行（Ctrl+2）"),
+            ("交集", "A ∩ B", "intersection", self.op_intersection, "交集", "A 和 B 共有的行（Ctrl+3）"),
+            ("并集", "A ∪ B", "union", self.op_union, "并集", "合并 A 和 B 并去重（Ctrl+4）"),
+        ]
+        for text, operands, icon, callback, key, tip in actions:
+            button = self._button(text, callback, tip, "railAction")
+            button.setIcon(icon_for(icon, "#c5cce0"))
+            button.setIconSize(QSize(18, 18))
+            hint = label(operands, "railHint")
+            hint.setAttribute(Qt.WA_TransparentForMouseEvents)
+            caption = QHBoxLayout(button)
+            caption.setContentsMargins(0, 0, 10, 0)
+            caption.addStretch()
+            caption.addWidget(hint)
+            self.operation_buttons[key] = button
+            layout.addWidget(button)
+
+        layout.addSpacing(8)
+        layout.addWidget(label("格式工具", "railHeading"))
+        self.format_button = self._rail_menu("文本格式", "railMenu", "format")
+        formats = [
+            ("加逗号", self.op_add_comma),
+            ("加引号逗号", self.op_add_quote),
+            ("去逗号", self.op_remove_comma),
+            ("去逗号+单引号", lambda: self.op_remove_cq("'")),
+            ("去逗号+双引号", lambda: self.op_remove_cq('"')),
+        ]
+        for text, callback in formats:
+            self.format_button.menu().addAction(text, callback)
+            self.operation_buttons[text] = self.format_button
+        layout.addWidget(self.format_button)
+
+        json_button = self._button("JSON 美化", self.op_json, "美化 A 中的 JSON（Ctrl+J）", "railAction")
+        json_button.setIcon(icon_for("json", "#c5cce0"))
+        json_button.setIconSize(QSize(18, 18))
+        self.operation_buttons["JSON 美化"] = json_button
+        layout.addWidget(json_button)
+        layout.addStretch()
+        layout.addWidget(divider("railRule"))
+        layout.addSpacing(4)
+        self.theme_button = self._rail_menu("切换主题", "themeMenu", "theme")
+        self.theme_group = QActionGroup(self)
+        self.theme_actions = {}
         for key, theme in THEMES.items():
-            btn = QRadioButton(theme["name"])
-            btn.setCursor(Qt.PointingHandCursor)
-            self.theme_group.addButton(btn)
-            self.theme_buttons[key] = btn
-            row.addWidget(btn)
-            btn.toggled.connect(lambda checked, k=key: checked and self._apply_theme(k))
+            action = self.theme_button.menu().addAction(theme["name"])
+            action.setCheckable(True)
+            self.theme_group.addAction(action)
+            self.theme_actions[key] = action
+            action.triggered.connect(lambda checked=False, k=key: self._apply_theme(k))
+        layout.addWidget(self.theme_button)
+        clear = self._button("清空工作区", self.op_clear, "清空所有输入和结果（Ctrl+L）", "railAction")
+        clear.setIcon(icon_for("clear", "#c5cce0"))
+        clear.setIconSize(QSize(18, 18))
+        layout.addWidget(clear)
+        return sidebar
 
-        return box
+    def _mark_operation(self, name: str | None) -> None:
+        button = self.operation_buttons.get(name)
+        if button is self.active_button:
+            return
+        for widget, active in ((self.active_button, False), (button, True)):
+            if widget is not None:
+                widget.setProperty("active", active)
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
+        self.active_button = button
 
     def _apply_theme(self, theme_key: str) -> None:
         theme = THEMES[theme_key]
         self.current_theme_key = theme_key
+        self.theme_actions[theme_key].setChecked(True)
         self.settings.setValue("theme", theme_key)
-
-        app = QApplication.instance()
-        if app is not None:
-            app.setStyleSheet(build_stylesheet(theme))
-
-        for panel in (self.panel_a, self.panel_b, self.panel_r):
-            panel.apply_theme(theme)
-        for label in self.section_labels:
-            label.setStyleSheet(f"color:{theme['muted']}; font-size:11px;")
-
+        self.setStyleSheet(build_stylesheet(theme))
+        self.swap_button.setIcon(icon_for("swap", theme["secondary_fg"], 16))
+        self.copy_button.setIcon(icon_for("copy", theme["on_accent"], 16))
         self.json_highlighter.set_theme(theme)
-
-        self.status.showMessage(f"已切换为{theme['name']}背景")
-
-    # ---------- 界面构建 ----------
-    def _build_buttons(self) -> QWidget:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
-        grid = QGridLayout(frame)
-        grid.setContentsMargins(6, 6, 6, 6)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
-
-        # (文本, 回调, 行, 列, 提示)
-        set_ops = [
-            ("重复(A)", self.op_duplicate, "找出 A 中重复出现的元素"),
-            ("去重(A)", self.op_distinct, "A 去重，保持顺序"),
-            ("A∩!B 差集", self.op_difference, "A 有 B 没有"),
-            ("A∩B 交集", self.op_intersection, "A 与 B 都有"),
-            ("A∪B 并集", self.op_union, "A 与 B 合并去重"),
-        ]
-        fmt_ops = [
-            ("AB 互换", self.op_swap, "交换 A、B 内容"),
-            ("清空", self.op_clear, "清空所有文本"),
-            ("加逗号", self.op_add_comma, "每行末尾加逗号"),
-            ("加引号逗号", self.op_add_quote, "加单引号并加逗号"),
-            ("去逗号", self.op_remove_comma, "去掉行尾逗号"),
-            ("去逗号+单引号", lambda: self.op_remove_cq("'"), "去逗号和单引号"),
-            ("去逗号+双引号", lambda: self.op_remove_cq('"'), "去逗号和双引号"),
-            ("JSON 整形", self.op_json, "把 A 当作 JSON 美化"),
-        ]
-
-        lbl1 = QLabel("集合运算")
-        self.section_labels.append(lbl1)
-        grid.addWidget(lbl1, 0, 0)
-        for i, (text, cb, tip) in enumerate(set_ops):
-            btn = self._make_btn(text, cb, tip, primary=True)
-            grid.addWidget(btn, 1, i)
-
-        lbl2 = QLabel("格式化 / 工具")
-        self.section_labels.append(lbl2)
-        grid.addWidget(lbl2, 2, 0)
-        tool_ops = fmt_ops + [
-            ("复制结果", self.op_copy_result, "复制 R 结果到剪贴板"),
-        ]
-        columns = 5
-        for i, (text, cb, tip) in enumerate(tool_ops):
-            btn = self._make_btn(text, cb, tip)
-            grid.addWidget(btn, 3 + i // columns, i % columns)
-
-        for column in range(columns):
-            grid.setColumnStretch(column, 1)
-
-        return frame
-
-    def _make_btn(self, text: str, callback, tip: str, primary: bool = False) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setToolTip(tip)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.clicked.connect(callback)
-        if primary:
-            btn.setProperty("primary", True)
-        return btn
+        self.status.showMessage(f"已切换为{theme['name']}主题")
 
     def _setup_shortcuts(self) -> None:
         shortcuts = {
@@ -576,6 +545,7 @@ class MainWindow(QMainWindow):
 
     def _show_result(self, lines: list[str], op_name: str) -> None:
         opts = self._options()
+        self._mark_operation(op_name)
         self.panel_r.set_text(join_result(lines, opts.remove_newline))
         self.tabs.setCurrentIndex(0)
         a_n = self.panel_a.line_count()
@@ -652,27 +622,34 @@ class MainWindow(QMainWindow):
         self.panel_a.set_text("")
         self.panel_b.set_text("")
         self.panel_r.set_text("")
-        self.json_view.setPlainText("")
+        self.json_view.clear()
+        self.tabs.setCurrentIndex(0)
+        self._mark_operation(None)
         self.status.showMessage("已清空")
 
     def op_json(self) -> None:
+        self._mark_operation("JSON 美化")
         ok, result = to_json_pretty(self.panel_a.text())
         self.json_view.setPlainText(result)
         self.tabs.setCurrentIndex(1)
         self.status.showMessage("JSON 整形成功" if ok else result)
 
     def op_copy_result(self) -> None:
-        text = self.panel_r.text()
+        if self.tabs.currentIndex() == 1:
+            text = self.json_view.document().toRawText().replace("\u2029", "\n")
+        else:
+            text = self.panel_r.text()
         if not text:
-            self.status.showMessage("R 结果为空，没有可复制的内容")
+            self.status.showMessage("当前结果为空，没有可复制的内容")
             return
         QGuiApplication.clipboard().setText(text)
-        self.status.showMessage(f"已复制 R 结果（{len(text)} 字符）到剪贴板")
+        self.status.showMessage(f"已复制当前结果（{len(text)} 字符）")
 
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("数据对比工具")
+    app.setWindowIcon(application_icon())
     install_exception_handler()
     win = MainWindow()
     win.show()
