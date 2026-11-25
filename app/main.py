@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRegularExpression, QSettings, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QMimeData, QRegularExpression, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -276,6 +276,17 @@ class JsonHighlighter(QSyntaxHighlighter):
             self.setFormat(match.capturedStart(), length, char_format)
 
 
+class DataTextEdit(QPlainTextEdit):
+    def createMimeDataFromSelection(self) -> QMimeData:
+        mime = super().createMimeDataFromSelection()
+        selected = self.textCursor().selectedText()
+        if "\u00a0" in selected or "\u2028" in selected:
+            # Qt 会在首次读取时才生成剪贴板格式。先生成，再替换纯文本内容。
+            mime.text()
+            mime.setText(selected.replace("\u2029", "\n"))
+        return mime
+
+
 class TextPanel(QWidget):
     """带标题和行数统计的文本面板。"""
 
@@ -294,7 +305,7 @@ class TextPanel(QWidget):
         header.addWidget(self.count_label)
         layout.addLayout(header)
 
-        self.edit = QPlainTextEdit()
+        self.edit = DataTextEdit()
         self.edit.setReadOnly(read_only)
         self.edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.edit.setPlaceholderText("在此粘贴/输入数据，每行一个…")
@@ -380,7 +391,7 @@ class MainWindow(QMainWindow):
         # 结果区用 Tab：纯文本 + JSON 视图
         self.tabs = QTabWidget()
         self.tabs.addTab(self.panel_r, "R 结果")
-        self.json_view = QPlainTextEdit()
+        self.json_view = DataTextEdit()
         self.json_view.setReadOnly(True)
         jfont = QFont("Consolas", 10)
         jfont.setStyleHint(QFont.Monospace)

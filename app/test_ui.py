@@ -11,6 +11,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 try:
@@ -48,6 +49,17 @@ class MainWindowTests(unittest.TestCase):
         self.window.panel_a.set_text('"a\u00a0b\u2028c"')
         self.window.op_json()
         self.assertEqual(self.window.json_view.document().toRawText(), '"a\u00a0b\u2028c"')
+
+    def test_copy_selection_preserves_whitespace_and_paragraphs(self) -> None:
+        value = '"😀a\u00a0b\u2028c"\n"end"'
+        for edit in (self.window.panel_a.edit, self.window.json_view):
+            with self.subTest(editor=edit):
+                edit.setPlainText("skip\n" + value)
+                cursor = edit.textCursor()
+                cursor.setPosition(5)
+                cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+                edit.setTextCursor(cursor)
+                self.assertEqual(edit.createMimeDataFromSelection().text(), value)
 
     def test_counts_use_the_same_lines_as_set_operations(self) -> None:
         a, b = self.window.panel_a, self.window.panel_b
